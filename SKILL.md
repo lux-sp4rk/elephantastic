@@ -148,12 +148,25 @@ task project:OldProject modify -next priority:L
 task project:NewProject modify +next priority:H
 ```
 
-### Age-Out Rule
-Tasks older than 14 days with no progress → cold storage:
-```bash
-task <id> export >> memory/backlog.md && task <id> delete
-```
-Tasks starting with "Maybe" or "Explore" untouched for 7 days → delete without ceremony.
+### Stale Task Triage Gate
+
+**Trigger:** `task status:pending age.before:14days count` exceeds **50**, halt new work and triage.
+
+**Decision Tree (for each stale task):**
+1. **Unblocked + HIGH/MEDIUM priority?** → Must close by next heartbeat OR deprioritize with annotation.
+2. **Blocking other work?** → Escalate now (bump to `+next`, add due date).
+3. **Tagged `+waiting`?** → OK (delegated). Review wait condition; reschedule if stale.
+4. **Appears in high-level goals (e.g., MEMORY.md)?** → Resurrect with `+next`. Add sub-tasks if needed.
+5. **Old "Explore" or "Maybe"?** → Delete. (It survived 14 days; it's not critical.)
+6. **Ref task linking to closed external issue?** → Delete. (Issue is resolved; task served its purpose.)
+7. **Everything else?** → Move to `memory/backlog.md` (Cold Storage). Add timestamp + rationale.
+
+**Output:** Run count again. If still >50, log concern and escalate to user.
+
+### Weekly Prune
+Every Monday (or during review loops):
+- **Age Out:** Any task older than 14 days with no progress gets deleted or moved to cold storage.
+- **Prune the "Maybe":** If a task description starts with "Maybe" or "Explore," and hasn't been touched in a week, delete it.
 
 ---
 
@@ -165,15 +178,55 @@ Tag destructive or irreversible tasks `+gate`. Do not auto-complete them.
 task add project:Internal +gate "push to main branch"
 ```
 
-When a `+gate` task completes: pause, notify the human, wait for explicit approval before marking done.
+When attempting to complete a `+gate` task via `task_manager.py done <id>`, the script will return:
+```json
+{"status": "gated", "message": "Witness Gate Active...", "task": {...}}
+```
+
+**Action:** Pause and notify the human. Do not bypass autonomously. Wait for explicit approval, then use `--witnessed` flag:
+```bash
+python3 scripts/task_manager.py done <id> --witnessed
+```
 
 ---
 
-## 8. Periodic Review
+## 8. Session Close Protocol
+
+**Trigger:** User signals end of session ("sleep", "done", "signing off") OR at the end of a review.
+
+**Goal:** Produce a populated handoff — never empty next steps.
+
+### Runbook
+
+1. **Pull next steps from Taskwarrior:**
+   ```bash
+   task +next status:pending limit:5
+   task +urgent status:pending limit:3
+   ```
+
+2. **Check session_state for in-progress work:**
+   ```bash
+   cat ops/session_state.md
+   ```
+
+3. **Construct summary:**
+   Format: `"[one-line session outcome] | next: [task 1], [task 2], [task 3]"`
+
+4. **Run the sleep wrapper:**
+   ```bash
+   scripts/sleep.sh "<summary>"
+   ```
+   This script validates next steps are non-empty before writing handoff.
+
+5. **Confirm:** Session sealed, top next steps shared, `/new` is safe.
+
+---
+
+## 9. Periodic Review
 
 Run at natural breakpoints: session start, after completing a feature, weekly.
 
-→ See `references/review-runbook.md` for the full runbook.
+→ See `references/review-runbook.md` for the full 7-step runbook.
 
 **Quick review (< 5 min):**
 ```bash
@@ -185,7 +238,7 @@ task project:Internal.Learnings +error status:pending list  # promote if 3+ recu
 
 ---
 
-## 9. Session Continuity
+## 10. Session Continuity
 
 **Workbench cycle** — the explicit protocol for `ops/session_state.md`:
 
@@ -208,18 +261,35 @@ Open loops: <anything unfinished>
 Blockers: <none | description>
 ```
 
-## 10. Vitality Heartbeat
+---
+
+## 11. Vitality Heartbeat
 
 Monitor agent activity and alert on sustained silence during mission hours.
 
 ```bash
-python3 references/vitality_check.py   # run manually
+python3 scripts/vitality_check.py   # run manually
 # or: cron every hour during mission hours
 ```
 
-→ See `references/vitality-heartbeat.md` for implementation.
+→ See `references/vitality-heartbeat.md` for full implementation details.
+
+**Concept:** If silence exceeds threshold (default: 8 hours) during mission hours (default: 14:00-02:00 UTC), alert the human with:
+- Hours silent
+- Last known active timestamp
+- Last known task (from `task active` or `ops/session_state.md`)
 
 ---
+
+## Scripts
+
+This skill includes helper scripts in `scripts/`:
+
+| Script | Purpose |
+|---|---|
+| `task_manager.py` | JSON API wrapper for Taskwarrior (list, capture, done, delete, witness gates) |
+| `vitality_check.py` | Silence detection during mission hours |
+| `sleep.sh` | Session close wrapper with next-step validation |
 
 ---
 
@@ -227,6 +297,6 @@ python3 references/vitality_check.py   # run manually
 
 - `references/taskwarrior-schema.md` — Installation, `.taskrc` config, UDAs, custom reports, tag taxonomy
 - `references/review-runbook.md` — Periodic review loop (2 min → 20 min depth levels)
-- `references/vitality-heartbeat.md` — Agent silence detection and alerting (Timewarrior or file-based)
+- `references/vitality-heartbeat.md` — Agent silence detection and alerting
 - `references/memory-gardener.md` — Memory lifecycle: daily rotation, weekly LLM harvest, monthly pruning
 - `references/executive-stack.md` — Async execution pattern: Taskwarrior → Pueue bridge (future/advanced)

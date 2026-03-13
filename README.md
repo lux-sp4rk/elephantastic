@@ -45,19 +45,9 @@ Log failures immediately to the `Internal.Learnings` project:
 | User correction | `+learning` | Captures preference drift & identity tweaks |
 | Capability gap | `+featreq` | Maps the agent's actual "frontier" for the developer |
 
-## Installation
-
-This is an [OpenClaw](https://openclaw.ai) skill.
-
-```bash
-clawhub install agent-gtd
-```
-
 ## References
 
 - `references/taskwarrior-schema.md` — Installation, `.taskrc` config, UDAs, custom reports.
 - `references/review-runbook.md` — Periodic review loop (2 min → 20 min depth levels).
 - `references/vitality-heartbeat.md` — Agent silence detection and alerting.
 
----
-*Created by [Lux Sp4rk](https://luxsp4rk.beehiiv.com/)*
